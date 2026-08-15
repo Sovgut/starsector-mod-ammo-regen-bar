@@ -65,17 +65,9 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
 	private float rescanIntervalSeconds = 0.5f;
 	private String uiRootMethod = "getWidgetPanel";
 
-	private float overlayHeightFraction = 0.4f;
-	private float overlayInsetX = 0f;
-	private boolean hideWhenFull = true;
-	private boolean invert = false;
-	private boolean drawShadow = true;
-	private boolean debugLoud = false;
-
-	private int colorR = 255;
-	private int colorG = 160;
-	private int colorB = 0;
-	private int colorA = 255;
+	// Held by every overlay as well, and edited in place, so a config reload
+	// reaches bars that are already attached.
+	private final AmmoRegenBarStyle style = new AmmoRegenBarStyle();
 
 	private List reported = new ArrayList();
 
@@ -111,25 +103,57 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
 			rescanIntervalSeconds = (float) cfg.optDouble("rescanIntervalSeconds", rescanIntervalSeconds);
 			uiRootMethod = cfg.optString("uiRootMethod", uiRootMethod);
 
-			overlayHeightFraction = (float) cfg.optDouble("overlayHeightFraction", overlayHeightFraction);
-			overlayInsetX = (float) cfg.optDouble("overlayInsetX", overlayInsetX);
-			hideWhenFull = cfg.optBoolean("hideWhenFull", hideWhenFull);
-			invert = cfg.optBoolean("invert", invert);
-			drawShadow = cfg.optBoolean("drawShadow", drawShadow);
-			debugLoud = cfg.optBoolean("debugLoud", debugLoud);
+			style.thicknessFraction = (float) cfg.optDouble("overlayHeightFraction", style.thicknessFraction);
+			style.insetLong = (float) cfg.optDouble("overlayInsetX", style.insetLong);
+			style.hideWhenFull = cfg.optBoolean("hideWhenFull", style.hideWhenFull);
+			style.invert = cfg.optBoolean("invert", style.invert);
+			style.drawShadow = cfg.optBoolean("drawShadow", style.drawShadow);
+			style.debugLoud = cfg.optBoolean("debugLoud", style.debugLoud);
 
-			colorR = cfg.optInt("colorR", colorR);
-			colorG = cfg.optInt("colorG", colorG);
-			colorB = cfg.optInt("colorB", colorB);
-			colorA = cfg.optInt("colorA", colorA);
+			style.vertical = cfg.optBoolean("vertical", style.vertical);
+			style.position = AmmoRegenBarStyle.parsePosition(cfg.optString("barPosition", null), style.position);
+			style.side = AmmoRegenBarStyle.parseSide(cfg.optString("verticalSide", null), style.side);
+
+			style.colorR = cfg.optInt("colorR", style.colorR);
+			style.colorG = cfg.optInt("colorG", style.colorG);
+			style.colorB = cfg.optInt("colorB", style.colorB);
+			style.colorA = cfg.optInt("colorA", style.colorA);
 		} catch (Throwable t) {
 			log().warn("AmmoRegenBar: could not read " + CONFIG_PATH + ", using built in defaults", t);
 		}
+
+		// The json is the layer of defaults; LunaLib, when the player has it,
+		// overrides field by field on top.
+		applyLunaOverrides();
 	}
 
 	// ------------------------------------------------------------------
 	// frame hooks
 	// ------------------------------------------------------------------
+
+	/**
+	 * Called when a battle starts. Everything is reset here so settings edited
+	 * in the campaign take effect in the next fight, and so a single failure
+	 * does not disable the mod for the rest of the session.
+	 *
+	 * detachAll() is deliberately not called: the panels of the previous battle
+	 * are already gone with its UI tree.
+	 */
+	public void init(CombatEngineAPI engine) {
+		configLoaded = false;
+		lunaChecked = false;
+		announced = false;
+		detectionBroken = false;
+		lastShip = null;
+		rescanTimer = 0f;
+		logTimer = 0f;
+		reported.clear();
+		attachedWeapons.clear();
+		attachedRows.clear();
+		attachedBars.clear();
+		attachedPanels.clear();
+		attachedPlugins.clear();
+	}
 
 	public void advance(float amount, List<InputEventAPI> events) {
 		try {
@@ -145,7 +169,8 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
 			if (!announced) {
 				announced = true;
 				log().info("AmmoRegenBar loaded, uiScale=" + Global.getSettings().getScreenScaleMult()
-						+ " enabled=" + enabled + " debugLog=" + debugLog);
+						+ " enabled=" + enabled + " debugLog=" + debugLog
+						+ " luna=" + lunaPresent + " " + style.describe());
 			}
 
 			if (!enabled || detectionBroken) {
@@ -193,8 +218,7 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
 				}
 				if (event.getEventValue() == KEY_R) {
 					loadConfig();
-					restyleAll();
-					log().info("AmmoRegenBar: config reloaded");
+					log().info("AmmoRegenBar: config reloaded, " + style.describe());
 					event.consume();
 				}
 			}
@@ -305,7 +329,7 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
 			// own: the parent lays its children out and overwrites whatever we
 			// set, which is how the bar ended up at the start of the row.
 			overlay.setAnchor(bar);
-			applyStyle(overlay);
+			overlay.setStyle(style);
 
 			UIPanelAPI parent = (UIPanelAPI) row;
 			parent.addComponent(panel);
@@ -340,17 +364,6 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
 		attachedBars.clear();
 		attachedPanels.clear();
 		attachedPlugins.clear();
-	}
-
-	private void restyleAll() {
-		for (int i = 0; i < attachedPlugins.size(); i++) {
-			applyStyle((AmmoRegenBarOverlay) attachedPlugins.get(i));
-		}
-	}
-
-	private void applyStyle(AmmoRegenBarOverlay overlay) {
-		overlay.setStyle(overlayHeightFraction, overlayInsetX, invert, hideWhenFull, drawShadow,
-				debugLoud, colorR, colorG, colorB, colorA);
 	}
 
 	private boolean regenerates(WeaponAPI weapon) {
@@ -561,6 +574,172 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
 		return values;
 	}
 
+
+	// ------------------------------------------------------------------
+	// LunaLib bridge
+	//
+	// LunaLib is optional and must stay that way, so its types are never named
+	// here: a direct reference would put lunalib/... into this class's constant
+	// pool, and MagicLib's own notes record that even a soft dependency on it
+	// can turn hard. The class is fetched by name from the script class loader
+	// and driven through the same MethodHandle helpers the sandbox already
+	// forces on us, so nothing links and the build needs no LunaLib.jar.
+	//
+	// There is no settings listener for the same reason: implementing their
+	// interface at runtime would need java.lang.reflect.Proxy, which is
+	// blocked. Settings are re-read at the start of each battle and on ALT + R,
+	// which is enough because their menu only opens outside combat.
+	// ------------------------------------------------------------------
+
+	public static final String MOD_ID = "ammoRegenBar";
+	private static final String LUNA_MOD_ID = "lunalib";
+
+	private boolean lunaChecked = false;
+	private boolean lunaPresent = false;
+	private Object lunaGetString;
+	private Object lunaGetBoolean;
+	private Object lunaGetDouble;
+
+	private void lunaInit() {
+		lunaChecked = true;
+		lunaPresent = false;
+		lunaGetString = null;
+		lunaGetBoolean = null;
+		lunaGetDouble = null;
+
+		if (!reflectionReady) {
+			return;
+		}
+		try {
+			if (!Global.getSettings().getModManager().isModEnabled(LUNA_MOD_ID)) {
+				return;
+			}
+			ClassLoader loader = Global.getSettings().getScriptClassLoader();
+			if (loader == null) {
+				loader = AmmoRegenBarPlugin.class.getClassLoader();
+			}
+			Class lunaClass = Class.forName("lunalib.lunaSettings.LunaSettings", false, loader);
+			Class[] args = new Class[] { String.class, String.class };
+
+			lunaGetString = mhGetMethod.invoke((Object) lunaClass, "getString", args);
+			lunaGetBoolean = mhGetMethod.invoke((Object) lunaClass, "getBoolean", args);
+			lunaGetDouble = mhGetMethod.invoke((Object) lunaClass, "getDouble", args);
+			lunaPresent = lunaGetString != null && lunaGetBoolean != null && lunaGetDouble != null;
+		} catch (Throwable t) {
+			reportOnce("lunaInit", "AmmoRegenBar: LunaLib is enabled but its settings API could not be reached, "
+					+ "falling back to " + CONFIG_PATH + " (" + t + ")");
+		}
+	}
+
+	private Object lunaCall(Object method, String fieldId) {
+		if (method == null) {
+			return null;
+		}
+		try {
+			// The receiver has to be a typed local: MethodHandle.invoke is
+			// signature polymorphic and a bare null literal will not compile.
+			Object receiver = null;
+			return mhInvoke.invoke(method, receiver, new Object[] { MOD_ID, fieldId });
+		} catch (Throwable t) {
+			return null;
+		}
+	}
+
+	/** Overrides the json defaults with whatever LunaLib holds, field by field. */
+	private void applyLunaOverrides() {
+		if (!lunaChecked) {
+			lunaInit();
+		}
+		if (!lunaPresent) {
+			return;
+		}
+
+		Object color = lunaCall(lunaGetString, "arb_barColor");
+		if (color instanceof String) {
+			int[] rgba = new int[] { style.colorR, style.colorG, style.colorB, style.colorA };
+			if (parseHexColor((String) color, rgba)) {
+				style.colorR = rgba[0];
+				style.colorG = rgba[1];
+				style.colorB = rgba[2];
+				style.colorA = rgba[3];
+			}
+		}
+
+		Object thickness = lunaCall(lunaGetDouble, "arb_barThickness");
+		if (thickness instanceof Double) {
+			float value = ((Double) thickness).floatValue();
+			if (value < 0.01f) {
+				value = 0.01f;
+			}
+			if (value > 1f) {
+				value = 1f;
+			}
+			style.thicknessFraction = value;
+		}
+
+		Object position = lunaCall(lunaGetString, "arb_barPosition");
+		if (position instanceof String) {
+			style.position = AmmoRegenBarStyle.parsePosition((String) position, style.position);
+		}
+
+		Object vertical = lunaCall(lunaGetBoolean, "arb_vertical");
+		if (vertical instanceof Boolean) {
+			style.vertical = ((Boolean) vertical).booleanValue();
+		}
+
+		Object side = lunaCall(lunaGetString, "arb_verticalSide");
+		if (side instanceof String) {
+			style.side = AmmoRegenBarStyle.parseSide((String) side, style.side);
+		}
+	}
+
+	/**
+	 * Accepts #RRGGBB, RRGGBB, #RGB and #RRGGBBAA, in either case. Writes into
+	 * rgba and returns whether it understood the input; leaves rgba untouched
+	 * otherwise, so a typo in the settings falls back rather than blanking the
+	 * bar. Deliberately hand rolled: Integer.decode chokes on the leading # and
+	 * overflows on eight digits.
+	 */
+	private static boolean parseHexColor(String text, int[] rgba) {
+		if (text == null || rgba == null || rgba.length < 4) {
+			return false;
+		}
+		String value = text.trim().toLowerCase();
+		if (value.startsWith("#")) {
+			value = value.substring(1);
+		}
+		int length = value.length();
+		if (length != 3 && length != 6 && length != 8) {
+			return false;
+		}
+		for (int i = 0; i < length; i++) {
+			char c = value.charAt(i);
+			boolean digit = c >= '0' && c <= '9';
+			boolean letter = c >= 'a' && c <= 'f';
+			if (!digit && !letter) {
+				return false;
+			}
+		}
+
+		try {
+			if (length == 3) {
+				rgba[0] = Integer.parseInt(value.substring(0, 1), 16) * 17;
+				rgba[1] = Integer.parseInt(value.substring(1, 2), 16) * 17;
+				rgba[2] = Integer.parseInt(value.substring(2, 3), 16) * 17;
+				return true;
+			}
+			rgba[0] = Integer.parseInt(value.substring(0, 2), 16);
+			rgba[1] = Integer.parseInt(value.substring(2, 4), 16);
+			rgba[2] = Integer.parseInt(value.substring(4, 6), 16);
+			if (length == 8) {
+				rgba[3] = Integer.parseInt(value.substring(6, 8), 16);
+			}
+			return true;
+		} catch (Throwable t) {
+			return false;
+		}
+	}
+
 	// ------------------------------------------------------------------
 	// diagnostics
 	// ------------------------------------------------------------------
@@ -598,9 +777,9 @@ public class AmmoRegenBarPlugin extends BaseEveryFrameCombatPlugin {
  * It owns no geometry. Position and size are copied from the ammo bar every
  * frame by AmmoRegenBarPlugin, so this class only has to fill a strip.
  *
- * Kept in this file on purpose: the game compiles each script file on its own
- * with Janino, and a class in a second file is not reliably resolvable from
- * here.
+ * Kept in this file next to the plugin because the two are one unit: the
+ * plugin decides which weapons get an overlay, the overlay decides what a
+ * single one looks like.
  */
 class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 
@@ -614,16 +793,8 @@ class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 	float lastLevel = -1f;
 	String lastRect = "none";
 
-	private float heightFraction = 0.4f;
-	private float insetX = 0f;
-	private boolean invert = false;
-	private boolean hideWhenFull = true;
-	private boolean drawShadow = true;
-	private boolean debugLoud = false;
-	private int colorR = 255;
-	private int colorG = 160;
-	private int colorB = 0;
-	private int colorA = 255;
+	// Shared with the plugin and mutated there, so a reload needs no re-push.
+	private AmmoRegenBarStyle style = new AmmoRegenBarStyle();
 
 	public AmmoRegenBarOverlay(WeaponAPI weapon) {
 		this.weapon = weapon;
@@ -638,18 +809,8 @@ class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 		this.anchor = anchor;
 	}
 
-	public void setStyle(float heightFraction, float insetX, boolean invert, boolean hideWhenFull,
-			boolean drawShadow, boolean debugLoud, int colorR, int colorG, int colorB, int colorA) {
-		this.debugLoud = debugLoud;
-		this.heightFraction = heightFraction;
-		this.insetX = insetX;
-		this.invert = invert;
-		this.hideWhenFull = hideWhenFull;
-		this.drawShadow = drawShadow;
-		this.colorR = colorR;
-		this.colorG = colorG;
-		this.colorB = colorB;
-		this.colorA = colorA;
+	public void setStyle(AmmoRegenBarStyle style) {
+		this.style = style;
 	}
 
 	/**
@@ -666,7 +827,7 @@ class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 		if (tracker == null || tracker.getAmmoPerSecond() <= 0f) {
 			return -1f;
 		}
-		if (hideWhenFull && tracker.getAmmo() >= tracker.getMaxAmmo()) {
+		if (style.hideWhenFull && tracker.getAmmo() >= tracker.getMaxAmmo()) {
 			return -1f;
 		}
 
@@ -676,7 +837,7 @@ class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 		if (value > 1f && reloadSize > 0f) {
 			value = raw / reloadSize;
 		}
-		if (invert) {
+		if (style.invert) {
 			value = 1f - value;
 		}
 		if (value < 0f) {
@@ -698,7 +859,7 @@ class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 			}
 			float level = fill();
 			lastLevel = level;
-			if (level < 0f && !debugLoud) {
+			if (level < 0f && !style.debugLoud) {
 				lastRect = "nothing to draw";
 				return;
 			}
@@ -709,33 +870,81 @@ class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 				return;
 			}
 
-			float boxX = pos.getX() + insetX;
-			float boxW = pos.getWidth() - insetX * 2f;
+			float x0 = pos.getX();
+			float y0 = pos.getY();
+			float boxW = pos.getWidth();
 			float boxH = pos.getHeight();
 			if (boxW <= 0f || boxH <= 0f) {
 				lastRect = "empty widget";
 				return;
 			}
 
-			float h = boxH * heightFraction;
-			if (h < 1f) {
-				h = 1f;
-			}
-			float y = pos.getY() + (boxH - h) * 0.5f;
-
-			// debugLoud keeps the real geometry but ignores the ammo state and
-			// paints magenta, so one look confirms placement and height.
-			int r = colorR;
-			int g = colorG;
-			int b = colorB;
-			if (debugLoud) {
+			// debugLoud keeps the real geometry and only ignores the ammo state,
+			// so one look confirms placement, thickness and orientation.
+			int r = style.colorR;
+			int g = style.colorG;
+			int b = style.colorB;
+			if (style.debugLoud) {
 				level = 1f;
 				r = 255;
 				g = 0;
 				b = 255;
 			}
 
-			lastRect = "x=" + boxX + " y=" + y + " w=" + (boxW * level) + " h=" + h + " alpha=" + alphaMult;
+			// Thickness always measures across the bar, so it follows the short
+			// axis: the anchor's height when horizontal, its width when vertical.
+			float thickness;
+			float length;
+			float bx;
+			float by;
+			float bw;
+			float bh;
+			float shadowDX;
+			float shadowDY;
+
+			if (style.vertical) {
+				thickness = boxW * style.thicknessFraction;
+				if (thickness < 1f) {
+					thickness = 1f;
+				}
+				length = boxH - style.insetLong * 2f;
+				if (length <= 0f) {
+					lastRect = "no room";
+					return;
+				}
+				bx = style.side == AmmoRegenBarStyle.SIDE_RIGHT ? x0 + boxW - thickness : x0;
+				by = y0 + style.insetLong;
+				bw = thickness;
+				bh = length * level;
+				shadowDX = -1f;
+				shadowDY = 0f;
+			} else {
+				thickness = boxH * style.thicknessFraction;
+				if (thickness < 1f) {
+					thickness = 1f;
+				}
+				length = boxW - style.insetLong * 2f;
+				if (length <= 0f) {
+					lastRect = "no room";
+					return;
+				}
+				if (style.position == AmmoRegenBarStyle.POS_TOP) {
+					by = y0 + boxH - thickness;
+				} else if (style.position == AmmoRegenBarStyle.POS_BOTTOM) {
+					by = y0;
+				} else {
+					by = y0 + (boxH - thickness) * 0.5f;
+				}
+				bx = x0 + style.insetLong;
+				bw = length * level;
+				bh = thickness;
+				shadowDX = 0f;
+				shadowDY = -1f;
+			}
+
+			lastRect = "mode=" + (style.vertical ? "v" : "h")
+					+ " x=" + bx + " y=" + by + " w=" + bw + " h=" + bh
+					+ " alpha=" + alphaMult;
 
 			GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
 			try {
@@ -743,10 +952,10 @@ class AmmoRegenBarOverlay implements CustomUIPanelPlugin {
 				GL11.glEnable(GL11.GL_BLEND);
 				GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-				if (drawShadow) {
-					quad(boxX, y - 1f, boxW * level, h, 0, 0, 0, (int) (180f * alphaMult));
+				if (style.drawShadow) {
+					quad(bx + shadowDX, by + shadowDY, bw, bh, 0, 0, 0, (int) (180f * alphaMult));
 				}
-				quad(boxX, y, boxW * level, h, r, g, b, (int) ((float) colorA * alphaMult));
+				quad(bx, by, bw, bh, r, g, b, (int) ((float) style.colorA * alphaMult));
 			} finally {
 				GL11.glPopAttrib();
 			}

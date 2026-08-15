@@ -23,8 +23,10 @@ git tag -a v1.3.0 -m "Ammo Regen Bar 1.3.0"
 git push origin main --follow-tags
 ```
 
-The tag message becomes the release notes body on GitHub, so write it for
-players rather than for the diff.
+The release notes body is **not** taken from the tag message: the workflow
+passes `--notes` explicitly in its `Publish the release` step, so that is where
+the text lives and where it has to be edited. The tag message is only ever seen
+in git.
 
 ## What the workflow does, and what it deliberately does not
 

@@ -1,0 +1,7 @@
+fieldID,fieldName,fieldType,defaultValue,secondaryValue,fieldDescription,minValue,maxValue,tab
+arb_header,Ammo Regen Bar,Header,Ammo Regen Bar,,,,,
+arb_barColor,Bar colour,Color,#ffa000,,"Colour of the regeneration bar. Transparency is not part of this picker and stays at the value in data/config/ammo_regen_bar.json.",,,
+arb_barThickness,Bar thickness,Double,0.3333,,"Thickness as a fraction of the ammo bar's short side. The ammo bar is only about 20 by 9 pixels, so a vertical bar usually wants a smaller value than a horizontal one.",0.05,1.0,
+arb_barPosition,Horizontal bar position,Radio,Center,"Top, Center, Bottom","Where the bar sits across the ammo bar. Has no effect while the vertical bar is switched on.",,,
+arb_vertical,Vertical bar,Boolean,false,,"Draw the bar along the ammo bar instead of across it. It fills upwards, and is short: expect about nine visible steps.",,,
+arb_verticalSide,Vertical bar side,Radio,Left,"Left, Right","Which side of the ammo bar a vertical bar sits on. Has no effect while the vertical bar is switched off.",,,

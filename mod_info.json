@@ -2,7 +2,7 @@
 	"id":"ammoRegenBar",
 	"name":"Ammo Regen Bar",
 	"author":"sovhut",
-	"version":"1.2.1",
+	"version":"1.3.0",
 	"utility":"true",
 	"description":"Shows ammo regeneration progress on the ammo bar of every weapon row in the combat HUD, so reload progress is visible before the magazine runs dry. Finds the HUD rows by itself, so it follows any ship and any UI layout. Render only, does not touch weapon stats or the save.",
 	"gameVersion":"0.98a-RC7",

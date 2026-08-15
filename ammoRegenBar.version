@@ -3,14 +3,8 @@
 	"modName": "Ammo Regen Bar",
 	"modVersion": {
 		"major": 1,
-		"minor": 2,
-		"patch": 1
+		"minor": 3,
+		"patch": 0
 	},
-
-	# Direct download of the packaged mod, fetched from the online version file.
 	"directDownloadURL": "https://github.com/Sovgut/starsector-mod-ammo-regen-bar/releases/latest/download/AmmoRegenBar.zip",
-
-	# No forum thread yet, so "modThreadId" is deliberately absent: Version
-	# Checker just skips the forum link when it is missing. Add it once the
-	# thread exists.
 }

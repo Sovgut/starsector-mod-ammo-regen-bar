@@ -63,9 +63,12 @@ reflecting mod in the ecosystem does. See the `reflection helpers` section of
 **If you touch that code, verify the compiled output afterwards:**
 
 ```sh
-unzip -p jars/AmmoRegenBar.jar ammoregenbar/AmmoRegenBarPlugin.class \
-  | strings | grep java/lang/reflect
+unzip -p jars/AmmoRegenBar.jar "*.class" | strings | grep java/lang/reflect
 ```
+
+The pattern covers every class in the jar on purpose. There is more than one
+now, and a check that names a single class silently stops covering the code it
+was written to guard.
 
 It must print nothing. String literals with dots (`java.lang.reflect.Method`,
 used by `Class.forName`) are fine; class references with slashes are what break
@@ -78,6 +81,40 @@ so anything painted there is covered by the weapon rows. The overlay is a
 `CustomPanelAPI` added into the game's own UI tree with `addComponent` plus
 `bringComponentToTop`, which is what puts it above the ammo bar.
 
+## LunaLib is optional, and stays that way
+
+`data/config/LunaSettings.csv` declares the settings LunaLib shows for this mod.
+LunaLib finds it on its own by walking the enabled mods; nothing registers it.
+
+The code never names a LunaLib type. `mod_info.json` has no `dependencies`, the
+build classpath has no `LunaLib.jar`, and the bridge fetches the settings class
+by name from `Global.getSettings().getScriptClassLoader()`, calling it through
+the same MethodHandle helpers the sandbox already forces on us. A direct
+reference would put `lunalib/...` into the constant pool, and MagicLib's own
+source carries a note that even a soft dependency on LunaLib can turn into a
+hard one.
+
+```sh
+grep -rn "lunalib" src/     # only string literals, never an import
+```
+
+Two consequences worth knowing:
+
+- **There is no settings listener.** Implementing their interface at runtime
+  would need `java.lang.reflect.Proxy`, which is blocked. Settings are re-read
+  at the start of each battle and on ALT + R instead, which is enough because
+  their menu only opens outside combat.
+- **Defaults are duplicated** between `data/config/ammo_regen_bar.json` and the
+  CSV. They have to agree: LunaLib writes its defaults into
+  `saves/common/LunaSettings/ammoRegenBar.json.data` on first launch, so a
+  mismatch changes the mod's appearance for a player who never opened the menu.
+
+A malformed CSV is worse than it sounds. LunaLib's loader does not guard its
+per-row parsing, so one bad row in **our** file takes down the settings screen
+for **every** installed mod. Check it before shipping: nine columns per row, a
+`Radio` default that appears verbatim in its options list, a `Double` default
+that parses, and no `[` or `]` in descriptions.
+
 ## Verifying a change
 
 `javac` and the game are the only real checks; there are no unit tests.
@@ -87,7 +124,11 @@ so anything painted there is covered by the weapon rows. The overlay is a
 3. Launch a battle and read `starsector.log`. Set `"debugLog": true` in
    `data/config/ammo_regen_bar.json` to get one line per attached overlay per
    second, including the anchor widget's coordinates.
-4. `"debugLoud": true` paints the overlay magenta over the full ammo bar,
+4. Test with LunaLib both enabled and disabled in the launcher. Disabled, the
+   log line must read `luna=false` and the bar must look exactly as the json
+   says. Enabled, changing a setting in the campaign must take effect in the
+   next battle.
+5. `"debugLoud": true` paints the overlay magenta over the full ammo bar,
    ignoring ammo state, keeping the real geometry. Use it when the bar is in the
    wrong place, or missing, and you need to tell "not drawn" from "drawn
    somewhere else".

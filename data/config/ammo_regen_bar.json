@@ -9,13 +9,24 @@
 	"enabled":true,
 
 	# --- appearance -------------------------------------------------------
-	# Height of the overlay as a fraction of the ammo bar height. One third
-	# leaves the ammo bar readable above and below the regen strip.
+	# Thickness of the overlay as a fraction of the ammo bar's short side: its
+	# height for a horizontal bar, its width for a vertical one. One third
+	# leaves the ammo bar readable on both sides of the regen strip.
 	"overlayHeightFraction":0.3333,
-	# Horizontal inset in pixels on each side. 0 means exactly as wide as the
-	# ammo bar.
+	# Inset in pixels at both ends of the bar's long axis. 0 means exactly as
+	# long as the ammo bar.
 	"overlayInsetX":0.0,
 	"drawShadow":true,
+
+	# Vertical bar instead of a horizontal one. The ammo bar is roughly 20 by 9
+	# pixels, so a vertical bar is short: expect about nine visible steps.
+	"vertical":false,
+	# Where a horizontal bar sits across the ammo bar: top, center or bottom.
+	# Ignored while "vertical" is true.
+	"barPosition":"center",
+	# Which side a vertical bar sits on: left or right.
+	# Ignored while "vertical" is false.
+	"verticalSide":"left",
 
 	# Orange by default so it reads apart from the green HUD.
 	"colorR":255,
@@ -38,7 +49,8 @@
 
 	# --- diagnostics ------------------------------------------------------
 	# debugLog dumps attached overlays and their coordinates into starsector.log.
-	# ALT + R reloads this file mid battle, which is handy for tuning colour.
+	# ALT + R reloads this file mid battle, together with the LunaLib settings,
+	# which is handy for tuning colour.
 	"debugLog":false,
 	"debugLogIntervalSeconds":1.0,
 

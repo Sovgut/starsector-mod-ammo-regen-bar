@@ -61,4 +61,6 @@ jobs:
             --title "Ammo Regen Bar ${GITHUB_REF_NAME#v}" \
             --notes "Install: extract \`AmmoRegenBar.zip\` into the game's \`mods\` folder, then enable **Ammo Regen Bar** in the launcher.
 
-          Requires Starsector 0.98a-RC7. No mod dependencies."
+          Requires Starsector 0.98a-RC7. No mod dependencies.
+
+          LunaLib is optional: without it the mod reads \`data/config/ammo_regen_bar.json\`, with it the bar colour, thickness, position and orientation can be changed from its settings screen."
