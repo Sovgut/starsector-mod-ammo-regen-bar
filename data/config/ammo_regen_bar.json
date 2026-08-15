@@ -1,0 +1,49 @@
+{
+	# Ammo Regen Bar
+	#
+	# The bar is not positioned by coordinates any more. The mod finds the weapon
+	# row in the game's own HUD, matches it to the weapon by object identity, and
+	# attaches an overlay on top of that row's ammo bar. So it follows the HUD by
+	# itself: any ship, any weapon names, any UI scale, no numbers to tune.
+
+	"enabled":true,
+
+	# --- appearance -------------------------------------------------------
+	# Height of the overlay as a fraction of the ammo bar height. One third
+	# leaves the ammo bar readable above and below the regen strip.
+	"overlayHeightFraction":0.3333,
+	# Horizontal inset in pixels on each side. 0 means exactly as wide as the
+	# ammo bar.
+	"overlayInsetX":0.0,
+	"drawShadow":true,
+
+	# Orange by default so it reads apart from the green HUD.
+	"colorR":255,
+	"colorG":160,
+	"colorB":0,
+	"colorA":255,
+
+	# --- behaviour --------------------------------------------------------
+	# hideWhenFull: no bar once the magazine is full.
+	# invert: fill the other way round.
+	"hideWhenFull":true,
+	"invert":false,
+
+	# --- internals --------------------------------------------------------
+	# How often to look for weapon rows that appeared or changed, in seconds.
+	"rescanIntervalSeconds":0.5,
+	# Accessor on the combat UI that returns the HUD root panel. The mod also
+	# tries getWidgetPanel and getScreenPanel on its own.
+	"uiRootMethod":"getWidgetPanel",
+
+	# --- diagnostics ------------------------------------------------------
+	# debugLog dumps attached overlays and their coordinates into starsector.log.
+	# ALT + R reloads this file mid battle, which is handy for tuning colour.
+	"debugLog":false,
+	"debugLogIntervalSeconds":1.0,
+
+	# debugLoud paints the whole ammo bar solid magenta, ignoring ammo state.
+	# It answers one question only: does the overlay reach the screen at all.
+	# Turn it off once that is settled.
+	"debugLoud":false,
+}
