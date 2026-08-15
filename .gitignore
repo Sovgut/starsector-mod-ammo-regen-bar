@@ -1,3 +1,4 @@
 # Transient javac output, recreated by build.sh on every build.
 build/
 build.sources
+dist/
