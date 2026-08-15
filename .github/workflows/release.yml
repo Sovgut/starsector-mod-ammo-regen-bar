@@ -1,0 +1,64 @@
+name: Release
+
+# Fires when a version tag is pushed. Compilation stays local on purpose: the
+# build needs the game's own jars (starfarer.api.jar and friends), which are
+# proprietary and must not live in this repository. The compiled mod jar is
+# committed instead, so this workflow only has to package and publish it.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The one mistake this setup cannot catch by itself is tagging without
+      # bumping, which would publish a release whose contents disagree with its
+      # name. So refuse to build unless the tag, mod_info.json and the version
+      # file all say the same thing.
+      - name: Check the tag against the mod version
+        run: |
+          python3 - "$GITHUB_REF_NAME" <<'PY'
+          import json, re, sys
+
+          def load(path):
+              raw = open(path).read()
+              raw = re.sub(r'#.*', '', raw)
+              raw = re.sub(r',(\s*[}\]])', r'\1', raw)
+              return json.loads(raw)
+
+          tag = sys.argv[1].lstrip('v')
+          mod = load('mod_info.json')['version']
+          v = load('ammoRegenBar.version')['modVersion']
+          version_file = '%s.%s.%s' % (v['major'], v['minor'], v['patch'])
+
+          print('tag=%s  mod_info=%s  version file=%s' % (tag, mod, version_file))
+          if tag != mod or tag != version_file:
+              sys.exit('version mismatch: bump mod_info.json and ammoRegenBar.version to %s, or tag the right version' % tag)
+          PY
+
+      - name: Package the mod
+        run: |
+          NAME=AmmoRegenBar
+          mkdir -p "dist/$NAME"
+          cp mod_info.json ammoRegenBar.version build.sh "dist/$NAME/"
+          cp -r data jars src "dist/$NAME/"
+          cd dist && zip -qr "$NAME.zip" "$NAME"
+          unzip -l "$NAME.zip"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/AmmoRegenBar.zip \
+            --title "Ammo Regen Bar ${GITHUB_REF_NAME#v}" \
+            --notes "Install: extract \`AmmoRegenBar.zip\` into the game's \`mods\` folder, then enable **Ammo Regen Bar** in the launcher.
+
+          Requires Starsector 0.98a-RC7. No mod dependencies."
